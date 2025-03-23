@@ -1,71 +1,76 @@
 # LLMod
 
-A Discord bot that uses Large Language Models (LLMs) to moderate conversations and detect disrespectful messages.
-Developed with the help of Claude 3.5 Sonnet.
+A Discord moderation bot powered by Large Language Models that helps maintain respectful conversations in your community.
+
+## Overview
+
+LLMod monitors Discord channels for disrespectful content and helps maintain a positive community atmosphere. It uses Large Language Models to analyze messages and conversation patterns, providing intelligent moderation capabilities.
 
 ## Features
 
-- Connects to Discord and monitors all channels
-- Analyzes messages in real-time using LLM technology
-- Automatically identifies and responds to disrespectful messages
-- Supports multiple LLM providers (OpenAI, Anthropic, Mistral, etc.)
-- Customizable moderation settings and thresholds
+- **Smart Content Moderation**: Detects disrespectful messages using powerful LLMs
+- **Conversation Context Analysis**: Analyzes conversation patterns to detect problematic behaviors
+- **Multi-Provider Support**: Works with various LLM providers including OpenAI, Anthropic, Mistral, Groq, and more
+- **Self-hosted**: Run it on your own hardware for full control over your data
+- **Customizable**: Configure moderation policies and LLM settings to match your community needs
+
+## How It Works
+
+LLMod monitors messages in Discord channels and analyzes them using LLMs to determine if they contain disrespectful content. When problematic content is detected, the bot issues a warning to the user and can log the incident to a moderation channel.
+
+The bot also analyzes conversation patterns over time to detect issues that might not be obvious from single messages, such as subtle forms of harassment or coordinated disrespectful behavior.
 
 ## Setup
 
 ### Prerequisites
 
-- Python 3.11 or higher
-- Discord Bot Token (from [Discord Developer Portal](https://discord.com/developers/applications))
-- LLM API Key (from one of the supported providers)
+- Python 3.12 or higher
+- Poetry (for dependency management)
+- Docker (optional, for containerized deployment)
+- A Discord bot token
+- API key(s) for your preferred LLM provider(s)
 
 ### Installation
 
-1. Clone this repository:
-   ```
-   git clone https://github.com/yourusername/LLMod.git
-   cd LLMod
-   ```
-
-2. Install the required dependencies:
-   ```
-   poetry install --no-root
-   ```
-
-3. Create a configuration file:
-   ```
-   cp config/config-example.yaml config/config.yaml
-   ```
-
-4. Edit the `config.yaml` file and add your Discord token and LLM API key(s).
-
-### Discord Bot Setup
-
-1. Go to the [Discord Developer Portal](https://discord.com/developers/applications)
-2. Create a new application
-3. Navigate to the "Bot" tab and click "Add Bot"
-4. Under "Privileged Gateway Intents", enable:
-   - Message Content Intent
-   - Server Members Intent
-5. Copy the bot token and add it to your `config.yaml` file
-6. Use the following URL to add the bot to your server (replace YOUR_CLIENT_ID):
-   ```
-   https://discord.com/api/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=274878221376&scope=bot
-   ```
-
-## Running the Bot
-
-Start the bot with:
-
-```
-python main.py
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/llmod.git
+cd llmod
 ```
 
-## LLM Provider Configuration
+2. Install dependencies with Poetry:
+```bash
+# Install Poetry if you don't have it
+# curl -sSL https://install.python-poetry.org | python3 -
 
-The bot supports multiple LLM providers. Configure them in the `config.yaml` file:
+# Install dependencies
+poetry install --no-root
+```
+
+3. Copy the example configuration file:
+```bash
+cp config/config-example.yaml config/config.yaml
+```
+
+4. Edit `config/config.yaml` with your Discord bot token and LLM provider API keys.
+
+### Configuration
+
+The `config.yaml` file contains all the settings for the bot. Key configurations include:
 
 ```yaml
+# Discord settings
+bot_token: YOUR_DISCORD_BOT_TOKEN
+status_message: "Monitoring messages for moderation"
+
+# Moderation settings
+max_messages: 25
+log_level: INFO
+
+# Moderation channel for logging (optional)
+moderation_channel_id: YOUR_CHANNEL_ID
+
+# LLM providers configuration
 providers:
   openai:
     base_url: https://api.openai.com/v1
@@ -73,50 +78,87 @@ providers:
   anthropic:
     base_url: https://api.anthropic.com/v1
     api_key: YOUR_ANTHROPIC_API_KEY
-  mistral:
-    base_url: https://api.mistral.ai/v1
-    api_key: YOUR_MISTRAL_API_KEY
-  # Add more providers as needed
-```
 
-Specify which model to use with the `model` setting:
-
-```yaml
-# Format: provider/model_name
+# Default model to use (format: provider/model_name)
 model: openai/gpt-4o
 ```
 
-## Available Providers
+### Running the Bot
 
-- `openai`: OpenAI API (GPT-4, GPT-3.5, etc.)
-- `anthropic`: Anthropic API (Claude models)
-- `mistral`: Mistral AI API
-- `groq`: Groq API
-- `openrouter`: OpenRouter API
-- `ollama`: Local Ollama server
-- `lmstudio`: Local LM Studio server
-- `vllm`: Local vLLM server
+#### With Poetry
 
-## Slash Commands
+```bash
+poetry run python main.py
+```
 
-The bot provides several slash commands:
+#### Using Docker
 
-- `/ping`: Check if the bot is online
-- `/info`: Get information about the bot's configuration
-- `/providers`: List all configured LLM providers
+You can also run LLMod in a Docker container:
 
-## How It Works
+1. Build the Docker image:
+```bash
+docker build -t llmod .
+```
 
-1. The bot connects to Discord and listens for messages in all channels it has access to
-2. When a message is received, it's added to a processing queue
-3. The LLM analyzes the message content to determine if it contains disrespectful language
-4. If disrespectful content is detected, the bot responds in the same channel with a warning to the user
+2. Run the container:
+```bash
+docker run -v $(pwd)/config:/app/config -v $(pwd)/logs:/app/logs llmod
+```
 
-## Extending the Bot
+This mounts your local config directory and logs directory to the container, ensuring your configuration is used and logs are persisted.
 
-You can extend the bot's functionality by:
+## Commands
 
-- Adding new moderation types beyond just disrespect
-- Implementing more sophisticated response templates
-- Adding admin commands for configuration
-- Creating a web dashboard for analytics and settings
+LLMod supports the following Discord slash commands:
+
+- `/ping` - Check if the bot is online
+- `/info` - Get information about the bot's configuration
+- `/providers` - List available LLM providers
+
+## Advanced Configuration
+
+### Conversation Analysis
+
+Configure how the bot analyzes conversations:
+
+```yaml
+# Number of messages to track for context
+max_messages: 25
+
+# Maximum age of messages to keep (in minutes)
+conversation_max_age: 60
+
+# Interval between conversation analyses (in seconds)
+conversation_interval: 300
+```
+
+### Moderation Channel
+
+Set up a dedicated channel where moderation actions are logged:
+
+```yaml
+moderation_channel_id: YOUR_CHANNEL_ID
+```
+
+### Custom System Prompt
+
+Customize the moderation criteria by modifying the system prompt:
+
+```yaml
+system_prompt: >
+  You are a Discord moderation assistant. Your task is to determine if messages contain
+  disrespectful content that should be moderated.
+```
+
+## Supported LLM Providers
+
+- OpenAI (gpt-4, gpt-3.5-turbo, etc.)
+- Anthropic (claude-3-opus, claude-3-sonnet, etc.)
+- Mistral AI
+- Groq
+- OpenRouter
+- Local models via Ollama, LM Studio, or vLLM
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
