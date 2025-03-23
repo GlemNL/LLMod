@@ -29,7 +29,7 @@ class TestConfig(Config):
             "system_prompt": "You are a light Discord moderation assistant. Your task is to determine if messages contain harmful content that should be moderated. ",
             "extra_api_parameters": {
                 "max_tokens": 1024,
-                "temperature": 0.0
+                "temperature": 0.7
             }
         }
 
@@ -164,7 +164,7 @@ class TestModerationWithOllama:
             print(f"False negatives: {false_negatives['harassment_score'].mean():.4f}")
         
         # Save results to CSV for further analysis
-        results_df.to_csv("moderation_test_results.csv", index=False)
+        results_df.to_csv("tests/data/moderation_test_results.csv", index=False)
         print(f"Detailed results saved to moderation_test_results.csv")
         
         # Calculate confusion matrix

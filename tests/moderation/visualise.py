@@ -8,7 +8,7 @@ import seaborn as sns
 import numpy as np
 from pathlib import Path
 
-def visualize_results(results_file="moderation_test_results.csv"):
+def visualize_results(results_file="tests/data/moderation_test_results.csv"):
     """Visualize the results of the moderation tests"""
     if not Path(results_file).exists():
         print(f"Results file {results_file} not found.")
@@ -109,7 +109,7 @@ def visualize_results(results_file="moderation_test_results.csv"):
     
     # Adjust layout and save
     plt.tight_layout()
-    plt.savefig('moderation_test_results.png')
+    plt.savefig('tests/data/moderation_test_results.png')
     print(f"Visualization saved to moderation_test_results.png")
     
     # Generate summary statistics

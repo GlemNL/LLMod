@@ -40,7 +40,7 @@ def register_events(client, bot):
             # Log the message received with more detail
             logger.debug(
                 f"Received message ID {message.id} from {message.author.name} "
-                f"{message.content[:50]}..."
+                f"{message.content}..."
             )
             
             # Skip messages from bots including our own

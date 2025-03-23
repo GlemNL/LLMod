@@ -3,7 +3,7 @@ Optimized prompts for Discord moderation with scam/spam detection
 """
 
 MODERATION_PROMPT = """
-You're a Discord mod for a friendly community. Determine if this message needs moderation:
+Determine if this message needs moderation:
 
 Message: "{message}"
 

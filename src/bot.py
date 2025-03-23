@@ -91,7 +91,7 @@ class DiscordLLModerator:
                         # Get moderation result for individual message from LLM
                         should_moderate, reason = await self.moderation_service.should_moderate(message.content)
                         
-                        self.logger.debug(f"Moderation result for message: {should_moderate}, reason: {reason[:50] if reason else 'None'}...")
+                        self.logger.debug(f"Moderation result for message: {should_moderate}, reason: {reason[:200] if reason else 'None'}...")
                         
                         if should_moderate:
                             stats["messages_moderated"] += 1

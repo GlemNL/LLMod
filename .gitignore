@@ -34,7 +34,7 @@ logs/
 # Database
 *.db
 *.sqlite3
-data/
+**/data/
 
 # IDE specific files
 .idea/
