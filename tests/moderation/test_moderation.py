@@ -1,4 +1,5 @@
 import pytest
+import pytest_asyncio
 import asyncio
 import json
 import polars as pl
@@ -10,19 +11,37 @@ import re
 from typing import Dict, List, Tuple, Any, Optional
 
 # Import from existing codebase
+from src.config import Config
+from src.llm.client import LLMClient
 from src.llm.moderation import extract_json_from_llm_response
 from src.llm.prompts import MODERATION_PROMPT
 
-# Import custom Ollama client for testing
-from ollama_client import OllamaClient
+class TestConfig(Config):
+    """Mock configuration for testing"""
+    def __init__(self):
+        self.data = {
+            "providers": {
+                "ollama": {
+                    "base_url": "http://127.0.0.1:11434/v1"
+                }
+            },
+            "model": "ollama/qwen2.5:0.5b",  # Use llama3 or your preferred model
+            "system_prompt": "You are a light Discord moderation assistant. Your task is to determine if messages contain harmful content that should be moderated. ",
+            "extra_api_parameters": {
+                "max_tokens": 1024,
+                "temperature": 0.0
+            }
+        }
+
 
 class TestModerationWithOllama:
     """Test suite for evaluating LLM moderation capabilities using Ollama"""
 
-    @pytest.fixture(scope="class")
+    @pytest_asyncio.fixture(scope="class")
     async def llm_client(self):
-        """Initialize custom Ollama client"""
-        client = OllamaClient(base_url="http://localhost:11434", model="llama3")
+        """Initialize LLM client with Ollama configuration"""
+        config = TestConfig()
+        client = LLMClient(config)
         yield client
         await client.close()  # Cleanup after tests
 
@@ -31,7 +50,7 @@ class TestModerationWithOllama:
         """Load the moderation dataset from Hugging Face"""
         try:
             # Load from Hugging Face if authenticated
-            df = pl.read_ndjson('hf://datasets/ifmain/text-moderation-02-large/moderation.jsonl')
+            df = pl.read_ndjson('hf://datasets/ifmain/text-moderation-02-large/moderation.jsonl') # hf://datasets/ifmain/text-moderation-02-large/moderation.jsonl
         except Exception as e:
             print(f"Error loading from Hugging Face: {e}")
             # Fallback: Use a local sample if available or create a minimal test set
@@ -45,7 +64,7 @@ class TestModerationWithOllama:
             df = pl.DataFrame(sample_data)
         
         # Select a subset for testing (adjust size as needed)
-        return df.sample(n=50, seed=42)
+        return df.sample(n=200, seed=42, with_replacement=True)
 
     @pytest.mark.asyncio
     async def test_harassment_detection(self, llm_client, moderation_dataset):
@@ -63,10 +82,8 @@ class TestModerationWithOllama:
             
             # Get LLM prediction
             try:
-                # Looking at the LLMClient implementation in the repo, we need to use the correct method
-                response = await llm_client.get_completion(prompt, 
-                                                          max_tokens=1024, 
-                                                          temperature=0.0)
+                # The key fix: Make sure to properly await the completion
+                response = await llm_client.get_completion(prompt)
                 result = extract_json_from_llm_response(response)
                 
                 # Extract prediction
@@ -95,7 +112,7 @@ class TestModerationWithOllama:
                 }
         
         # Process messages in batches to avoid overwhelming the API
-        batch_size = 5
+        batch_size = 20
         for i in range(0, len(moderation_dataset), batch_size):
             batch = moderation_dataset.slice(i, min(batch_size, len(moderation_dataset) - i))
             batch_tasks = [process_message(row) for row in batch.to_dicts()]
@@ -165,10 +182,64 @@ class TestModerationWithOllama:
         
         print(f"\n===== Classification Metrics =====")
         print(f"Precision: {precision:.4f}")
-        print(f"Recall: {precision:.4f}")
+        print(f"Recall: {recall:.4f}")  # Fixed: was printing precision twice
         print(f"F1 Score: {f1:.4f}")
         
         # Assert minimal performance threshold
         assert accuracy > 0.5, "Moderation accuracy should be better than random chance"
         
         return results_df
+    
+
+    async def process_message(row):  
+        message = row["text"]
+        # Get ground truth
+        ground_truth_flagged = row["moder"]["categories"]["harassment"]
+        harassment_score = row["moder"]["category_scores"]["harassment"]
+        
+        # Format prompt with message
+        prompt = MODERATION_PROMPT.format(message=message)
+        
+        # Get LLM prediction
+        try:
+            # Fix: Add proper timeout context and handling
+            response = await asyncio.wait_for(
+                llm_client.get_completion(prompt),
+                timeout=30  # Add a reasonable timeout
+            )
+            result = extract_json_from_llm_response(response)
+            
+            # Extract prediction
+            predicted_flagged = result.get("should_moderate", False)
+            reason = result.get("reason", "")
+            
+            return {
+                "id": row["id"],
+                "text": message[:100] + "..." if len(message) > 100 else message,
+                "ground_truth_flagged": ground_truth_flagged,
+                "harassment_score": harassment_score,
+                "predicted_flagged": predicted_flagged,
+                "reason": reason,
+                "correct": predicted_flagged == ground_truth_flagged
+            }
+        except asyncio.TimeoutError:
+            return {
+                "id": row["id"],
+                "text": message[:100] + "..." if len(message) > 100 else message,
+                "ground_truth_flagged": ground_truth_flagged,
+                "harassment_score": harassment_score,
+                "predicted_flagged": None,
+                "reason": "Error: Request timed out",
+                "correct": False
+            }
+        except Exception as e:
+            print(f"Error processing message {row['id']}: {e}")
+            return {
+                "id": row["id"],
+                "text": message[:100] + "..." if len(message) > 100 else message,
+                "ground_truth_flagged": ground_truth_flagged,
+                "harassment_score": harassment_score,
+                "predicted_flagged": None,
+                "reason": f"Error: {str(e)}",
+                "correct": False
+            }

@@ -40,7 +40,7 @@ class LLMClient:
     async def ensure_session(self):
         """Ensure an aiohttp session exists"""
         if self.session is None or self.session.closed:
-            self.session = aiohttp.ClientSession()
+            self.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60))
     
     async def close(self):
         """Close the aiohttp session if it exists"""
@@ -182,6 +182,7 @@ class LLMClient:
                 f"{base_url}/chat/completions",
                 headers=headers,
                 json=payload,
+                timeout=aiohttp.ClientTimeout(total=30),
                 raise_for_status=True
             ) as response:
                 result = await response.json()
@@ -243,6 +244,7 @@ class LLMClient:
                 f"{base_url}/messages",
                 headers=headers,
                 json=payload,
+                timeout=aiohttp.ClientTimeout(total=30),
                 raise_for_status=True
             ) as response:
                 result = await response.json()
@@ -321,7 +323,7 @@ class LLMClient:
                 f"{base_url}/chat/completions",
                 headers=headers,
                 json=payload,
-                timeout=60
+                timeout=aiohttp.ClientTimeout(total=30),
             ) as response:
                 if response.status != 200:
                     error_text = await response.text()
@@ -424,7 +426,7 @@ class LLMClient:
                 f"{base_url}/messages",
                 headers=headers,
                 json=payload,
-                timeout=60
+                timeout=aiohttp.ClientTimeout(total=30),
             ) as response:
                 if response.status != 200:
                     error_text = await response.text()

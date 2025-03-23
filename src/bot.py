@@ -84,7 +84,7 @@ class DiscordLLModerator:
                     if message.author.bot:
                         continue
                     
-                    self.logger.debug(f"Processing message: {message.content[:50]}...")
+                    self.logger.debug(f"Processing message: {message.content[:200]}...")
                     stats["messages_processed"] += 1
                     
                     try:

@@ -1,5 +1,5 @@
 [project]
-name = "discordllmoderator"
+name = "LLMod"
 version = "0.1.0"
 description = ""
 authors = [
@@ -22,6 +22,7 @@ dependencies = [
     "matplotlib (>=3.10.1,<4.0.0)",
     "seaborn (>=0.13.2,<0.14.0)"
 ]
+packages = ["src"]
 
 
 [build-system]
