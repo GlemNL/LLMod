@@ -7,6 +7,22 @@ Developed with the help of Claude 3.5 Sonnet.
 
 LLMod monitors Discord channels for disrespectful content and helps maintain a positive community atmosphere. It uses Large Language Models to analyze messages and conversation patterns, providing intelligent moderation capabilities.
 
+## Work in Progress
+
+⚠️ Note: This project is under active development
+
+LLMod is currently in early development, and many improvements are needed:
+
+- The current moderation action is limited to posting warning messages to users who violate community standards
+
+- Future updates will include:
+  - Configurable moderation actions (message deletion, timeouts, bans, etc.)
+  - Better conversation tracking and context awareness
+  - User reputation system
+  - ...
+
+
+If you're interested in contributing to any of these features, please check the open issues or submit a pull request!
 ## Features
 
 - **Smart Content Moderation**: Detects disrespectful messages using powerful LLMs
