@@ -16,7 +16,7 @@ Flag patterns of:
 
 Respond with JSON:
 {{
-    "should_moderate": true/false,
+    "needs_moderation": true/false,
     "reason": "Brief explanation if applicable"
 }}
 

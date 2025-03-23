@@ -35,6 +35,7 @@ logs/
 *.db
 *.sqlite3
 **/data/
+**/notebooks
 
 # IDE specific files
 .idea/

@@ -16,6 +16,10 @@ from src.llm.client import LLMClient
 from src.llm.moderation import extract_json_from_llm_response
 from src.llm.prompts import MODERATION_PROMPT
 
+TEST_MODEL = "gemma3:4b"
+BATCH_SIZE = 5
+# export OLLAMA_NUM_PARALLEL=5
+
 class TestConfig(Config):
     """Mock configuration for testing"""
     def __init__(self):
@@ -25,11 +29,11 @@ class TestConfig(Config):
                     "base_url": "http://127.0.0.1:11434/v1"
                 }
             },
-            "model": "ollama/qwen2.5:0.5b",  # Use llama3 or your preferred model
+            "model": f"ollama/{TEST_MODEL}",  # Use llama3 or your preferred model
             "system_prompt": "You are a light Discord moderation assistant. Your task is to determine if messages contain harmful content that should be moderated. ",
             "extra_api_parameters": {
                 "max_tokens": 1024,
-                "temperature": 0.7
+                "temperature": 0.0
             }
         }
 
@@ -87,7 +91,7 @@ class TestModerationWithOllama:
                 result = extract_json_from_llm_response(response)
                 
                 # Extract prediction
-                predicted_flagged = result.get("should_moderate", False)
+                predicted_flagged = result.get("needs_moderation", False)
                 reason = result.get("reason", "")
                 
                 return {
@@ -112,15 +116,14 @@ class TestModerationWithOllama:
                 }
         
         # Process messages in batches to avoid overwhelming the API
-        batch_size = 20
-        for i in range(0, len(moderation_dataset), batch_size):
-            batch = moderation_dataset.slice(i, min(batch_size, len(moderation_dataset) - i))
+        for i in range(0, len(moderation_dataset), BATCH_SIZE):
+            batch = moderation_dataset.slice(i, min(BATCH_SIZE, len(moderation_dataset) - i))
             batch_tasks = [process_message(row) for row in batch.to_dicts()]
             batch_results = await asyncio.gather(*batch_tasks)
             results.extend(batch_results)
             
             # Print progress
-            print(f"Processed {min(i + batch_size, len(moderation_dataset))}/{len(moderation_dataset)} messages")
+            print(f"Processed {min(i + BATCH_SIZE, len(moderation_dataset))}/{len(moderation_dataset)} messages")
         
         # Convert results to DataFrame for analysis
         results_df = pd.DataFrame(results)
@@ -210,7 +213,7 @@ class TestModerationWithOllama:
             result = extract_json_from_llm_response(response)
             
             # Extract prediction
-            predicted_flagged = result.get("should_moderate", False)
+            predicted_flagged = result.get("needs_moderation", False)
             reason = result.get("reason", "")
             
             return {

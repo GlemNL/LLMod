@@ -27,7 +27,7 @@ class ModerationService:
         self.context_manager = context_manager
         self._lock = asyncio.Lock()  # Add a lock to prevent concurrent API calls
     
-    async def should_moderate(self, message_content):
+    async def needs_moderation(self, message_content):
         """
         Check if a message should be moderated based on content
         
@@ -35,8 +35,8 @@ class ModerationService:
             message_content (str): The content of the message to check
             
         Returns:
-            tuple: (should_moderate, reason)
-                - should_moderate (bool): Whether the message should be moderated
+            tuple: (needs_moderation, reason)
+                - needs_moderation (bool): Whether the message should be moderated
                 - reason (str): The reason for moderation, if applicable
         """
         if not message_content.strip():
@@ -56,10 +56,10 @@ class ModerationService:
                     result = extract_json_from_llm_response(response)
                     
                     if result:
-                        should_moderate = result.get("should_moderate", False)
+                        needs_moderation = result.get("needs_moderation", False)
                         reason = result.get("reason", "")
                         
-                        return should_moderate, reason
+                        return needs_moderation, reason
                     
                     # Fallback if JSON extraction fails
                     logger.warning(f"Failed to extract JSON from LLM response: {response}")
