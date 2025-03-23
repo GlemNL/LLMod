@@ -29,7 +29,7 @@ Developed with the help of Claude 3.5 Sonnet.
 
 2. Install the required dependencies:
    ```
-   pip install -r requirements.txt
+   poetry install --no-root
    ```
 
 3. Create a configuration file:
