@@ -1,0 +1,2258 @@
+This file is a merged representation of a subset of the codebase, containing files not matching ignore patterns, combined into a single document by Repomix.
+
+================================================================
+File Summary
+================================================================
+
+Purpose:
+--------
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+
+File Format:
+------------
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Multiple file entries, each consisting of:
+  a. A separator line (================)
+  b. The file path (File: path/to/file)
+  c. Another separator line
+  d. The full contents of the file
+  e. A blank line
+
+Usage Guidelines:
+-----------------
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+
+Notes:
+------
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching these patterns are excluded: **/*.ipynb, **/*.lock, *.toml, **/*.gitignore, **/prepare_test_dataset, **/test_*.py, **/notebooks, **/test, **/operator, **/activities, **/common
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+
+Additional Info:
+----------------
+
+================================================================
+Directory Structure
+================================================================
+config/
+  config-example.yaml
+src/
+  discord/
+    client.py
+    commands.py
+    events.py
+    responses.py
+  llm/
+    client.py
+    moderation.py
+    prompts.py
+  utils/
+    conversation_context.py
+    logging.py
+    message_queue.py
+  bot.py
+  config.py
+.python-version
+main.py
+README.md
+
+================================================================
+Files
+================================================================
+
+================
+File: config/config-example.yaml
+================
+# Discord settings
+bot_token: YOUR_DISCORD_BOT_TOKEN
+status_message: "Monitoring messages for moderation"
+
+# Moderation settings
+max_messages: 25
+log_level: INFO
+
+# Moderation channel for logging (optional)
+moderation_channel_id: 
+
+# LLM providers configuration
+providers:
+  openai:
+    base_url: https://api.openai.com/v1
+    api_key: YOUR_OPENAI_API_KEY
+  anthropic:
+    base_url: https://api.anthropic.com/v1
+    api_key: YOUR_ANTHROPIC_API_KEY
+  mistral:
+    base_url: https://api.mistral.ai/v1
+    api_key: YOUR_MISTRAL_API_KEY
+  groq:
+    base_url: https://api.groq.com/openai/v1
+    api_key: YOUR_GROQ_API_KEY
+  openrouter:
+    base_url: https://openrouter.ai/api/v1
+    api_key: YOUR_OPENROUTER_API_KEY
+  ollama:
+    base_url: http://localhost:11434/v1
+  lmstudio:
+    base_url: http://localhost:1234/v1
+  vllm:
+    base_url: http://localhost:8000/v1
+
+# Default model to use (format: provider/model_name)
+model: openai/gpt-4o
+
+# Additional API parameters for LLM requests
+extra_api_parameters:
+  max_tokens: 1024
+  temperature: 0.0
+
+# System prompt for moderation
+system_prompt: >
+  You are a Discord moderation assistant. Your task is to determine if messages contain
+  disrespectful content that should be moderated.
+
+================
+File: src/discord/client.py
+================
+"""
+Discord client setup for DiscordLLModerator
+"""
+import logging
+import discord
+
+logger = logging.getLogger(__name__)
+
+def setup_discord_client(intents):
+    """
+    Set up and configure the Discord client
+    
+    Args:
+        intents (discord.Intents): The intents to use for the client
+        
+    Returns:
+        discord.Client: The configured Discord client
+    """
+    # Create the Discord client
+    client = discord.Client(intents=intents)
+    
+    logger.info("Discord client initialized with required intents")
+    
+    return client
+
+================
+File: src/discord/commands.py
+================
+"""
+Command handler for Discord slash commands
+"""
+import logging
+import discord
+from discord import app_commands
+
+logger = logging.getLogger(__name__)
+
+class CommandHandler:
+    """
+    Handles Discord slash commands for the bot
+    """
+    def __init__(self, bot, config):
+        """
+        Initialize the command handler
+        
+        Args:
+            bot: The Discord bot client
+            config: The configuration object
+        """
+        self.bot = bot
+        self.config = config
+        self.command_tree = app_commands.CommandTree(bot)
+        
+        # Register commands
+        self._register_commands()
+    
+    def _register_commands(self):
+        """Register all slash commands"""
+        
+        @self.command_tree.command(name="ping", description="Check if the bot is online")
+        async def ping(interaction: discord.Interaction):
+            """Simple ping command to check bot status"""
+            await interaction.response.send_message("Pong! Bot is online and responding.", ephemeral=True)
+        
+        @self.command_tree.command(name="info", description="Get information about the bot")
+        async def info(interaction: discord.Interaction):
+            """Display information about the bot and its configuration"""
+            provider, model = self.config.model.split("/", 1) if "/" in self.config.model else ("default", self.config.model)
+            
+            embed = discord.Embed(
+                title="DiscordLLModerator Info",
+                description="A moderation bot powered by LLMs",
+                color=0x5865F2
+            )
+            
+            embed.add_field(name="LLM Provider", value=provider, inline=True)
+            embed.add_field(name="Model", value=model, inline=True)
+            embed.add_field(name="Status", value="Online", inline=True)
+            
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            
+        @self.command_tree.command(name="providers", description="List available LLM providers")
+        async def providers(interaction: discord.Interaction):
+            """List all configured LLM providers"""
+            provider_list = list(self.config.providers.keys())
+            
+            if not provider_list:
+                await interaction.response.send_message("No LLM providers configured.", ephemeral=True)
+                return
+            
+            embed = discord.Embed(
+                title="Available LLM Providers",
+                description=f"The following {len(provider_list)} providers are configured:",
+                color=0x5865F2
+            )
+            
+            current_provider = self.config.model.split("/", 1)[0] if "/" in self.config.model else "default"
+            
+            for provider in provider_list:
+                is_current = provider == current_provider
+                embed.add_field(
+                    name=f"{provider} {'(current)' if is_current else ''}",
+                    value="✅ Configured" if provider in self.config.providers else "❌ Not configured",
+                    inline=True
+                )
+            
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    async def sync_commands(self):
+        """Sync commands with Discord"""
+        await self.command_tree.sync()
+        logger.info("Slash commands synchronized with Discord")
+
+================
+File: src/discord/events.py
+================
+"""
+Enhanced event handlers for Discord events with conversation context support and fixes
+"""
+import logging
+from src.discord.responses import ResponseTemplates
+
+logger = logging.getLogger(__name__)
+
+def register_events(client, bot):
+    """Register event handlers for the Discord client"""
+    
+    @client.event
+    async def on_ready():
+        """Called when the bot is ready and connected to Discord"""
+        logger.info(f"Logged in as {client.user.name} (ID: {client.user.id})")
+        logger.info(f"Connected to {len(client.guilds)} guilds")
+        
+        # Log provider and model
+        provider, model = bot.config.model.split("/", 1) if "/" in bot.config.model else ("default", bot.config.model)
+        logger.info(f"Using LLM provider: {provider}, model: {model}")
+        
+        # Log conversation context settings
+        logger.info(f"Tracking up to {bot.config.max_messages} messages per channel for context")
+        
+        for guild in client.guilds:
+            logger.info(f"Connected to guild: {guild.name} (ID: {guild.id})")
+            
+        # Set up slash commands if commands module is available
+        try:
+            from src.discord.commands import CommandHandler
+            bot.command_handler = CommandHandler(client, bot.config)
+            await bot.command_handler.sync_commands()
+        except ImportError:
+            logger.info("Command handler not available, skipping slash command registration")
+    
+    @client.event
+    async def on_message(message):
+        """Called when a message is received"""
+        try:
+            # Log the message received with more detail
+            logger.debug(
+                f"Received message ID {message.id} from {message.author.name} "
+                f"{message.content[:50]}..."
+            )
+            
+            # Skip messages from bots including our own
+            if message.author.bot:
+                logger.debug(f"Skipping message from bot: {message.author.name}")
+                return
+                
+            # Add message to the context manager for conversation tracking
+            # This happens before queueing to ensure context is up to date even if processing is delayed
+            if hasattr(bot, 'context_manager'):
+                bot.context_manager.add_message(message)
+                logger.debug(f"Added message to context manager for channel {message.channel.id}")
+            
+            # Add the message to the processing queue
+            # The MessageQueue class should have a put_sync method for synchronous calls
+            # from event handlers
+            if hasattr(bot.message_queue, 'put_sync'):
+                bot.message_queue.put_sync(message)
+            else:
+                # Fallback to the original put method if put_sync is not available
+                bot.message_queue.put(message)
+                
+            logger.debug(f"Added message from {message.author.name} to queue for processing")
+        except Exception as e:
+            logger.error(f"Error in on_message handler: {e}", exc_info=True)
+    
+    @client.event
+    async def on_message_delete(message):
+        """Called when a message is deleted"""
+        try:
+            # We don't remove deleted messages from the context
+            # This is intentional - deleted messages can still be part of problematic patterns
+            logger.debug(f"Message deleted in {message.channel.name}, but kept in context history")
+        except Exception as e:
+            logger.error(f"Error in on_message_delete handler: {e}", exc_info=True)
+    
+    @client.event
+    async def on_message_edit(before, after):
+        """Called when a message is edited"""
+        try:
+            # If the message content changed, update it in our context
+            if before.content != after.content and hasattr(bot, 'context_manager'):
+                # For now, we just add the edited message as a new message
+                # A more sophisticated approach would be to update the existing message
+                logger.debug(f"Message edited in {after.channel.name}, adding updated version to context")
+                bot.context_manager.add_message(after)
+        except Exception as e:
+            logger.error(f"Error in on_message_edit handler: {e}", exc_info=True)
+    
+    @client.event
+    async def on_guild_join(guild):
+        """Called when the bot joins a new guild"""
+        try:
+            logger.info(f"Joined new guild: {guild.name} (ID: {guild.id})")
+            
+            # Find a suitable channel to send an introduction message
+            system_channel = guild.system_channel
+            if system_channel and system_channel.permissions_for(guild.me).send_messages:
+                welcome_message = ResponseTemplates.get_server_join_message()
+                await system_channel.send(welcome_message)
+        except Exception as e:
+            logger.error(f"Error in on_guild_join handler: {e}", exc_info=True)
+    
+    @client.event
+    async def on_error(event, *args, **kwargs):
+        """Called when an error occurs in an event handler"""
+        logger.error(f"Error in event {event}", exc_info=True)
+
+================
+File: src/discord/responses.py
+================
+"""
+Enhanced response templates for the Discord bot with conversation context support
+"""
+import random
+import logging
+
+logger = logging.getLogger(__name__)
+
+class ResponseTemplates:
+    """
+    Templates for bot responses
+    """
+    
+    # Warning messages for disrespectful content
+    DISRESPECT_WARNINGS = [
+        "Hey {user}, please be respectful in this channel. {reason}",
+        "{user}, I've noticed something disrespectful in your message. {reason} Please be more mindful of how your words might affect others.",
+        "Reminder {user}: We want to maintain a respectful environment here. {reason}",
+        "{user}, your message was flagged as potentially disrespectful. {reason} Let's keep conversations constructive.",
+        "Please watch your tone, {user}. {reason} Remember that text can sometimes come across differently than intended."
+    ]
+    
+    # Warning messages for contextual analysis
+    CONTEXTUAL_WARNINGS = [
+        "Hey {user}, I've been monitoring the conversation and noticed some concerning patterns. {reason} Let's keep our discussions respectful.",
+        "{user}, looking at the recent conversation history, I've identified some potentially disrespectful content. {reason}",
+        "Based on the conversation context, {user}, I need to issue a warning. {reason} Please be mindful of how your messages contribute to the overall tone.",
+        "After analyzing the conversation, {user}, I've detected content that may be problematic. {reason} Let's maintain a supportive atmosphere.",
+        "{user}, when looking at your recent messages together, a pattern emerges that needs addressing. {reason}"
+    ]
+    
+    # Greeting messages when bot joins a server
+    SERVER_JOIN_MESSAGES = [
+        "Hello! I'm DiscordLLModerator, a bot that helps keep conversations respectful. I'll be monitoring chats and may send reminders if disrespectful language is detected.",
+        "Greetings! I'm DiscordLLModerator, here to help maintain a positive community atmosphere. I'll be monitoring for disrespectful language.",
+        "Hi everyone! I'm DiscordLLModerator, your new moderation assistant. I use AI to help keep conversations respectful and constructive."
+    ]
+    
+    @staticmethod
+    def get_disrespect_warning(user_mention, reason):
+        """
+        Get a randomly selected disrespect warning message
+        
+        Args:
+            user_mention (str): The user mention string (e.g., "<@123456789>")
+            reason (str): The reason for the warning
+            
+        Returns:
+            str: Formatted warning message
+        """
+        template = random.choice(ResponseTemplates.DISRESPECT_WARNINGS)
+        return template.format(user=user_mention, reason=reason)
+    
+    @staticmethod
+    def get_contextual_warning(user_mention, reason):
+        """
+        Get a randomly selected contextual warning message
+        
+        Args:
+            user_mention (str): The user mention string (e.g., "<@123456789>")
+            reason (str): The reason for the warning
+            
+        Returns:
+            str: Formatted warning message
+        """
+        template = random.choice(ResponseTemplates.CONTEXTUAL_WARNINGS)
+        return template.format(user=user_mention, reason=reason)
+    
+    @staticmethod
+    def get_server_join_message():
+        """
+        Get a randomly selected server join message
+        
+        Returns:
+            str: Server join message
+        """
+        return random.choice(ResponseTemplates.SERVER_JOIN_MESSAGES)
+
+    @staticmethod
+    def get_help_message():
+        """
+        Get the help message for the bot
+        
+        Returns:
+            str: Help message
+        """
+        return (
+            "**DiscordLLModerator Help**\n\n"
+            "I'm a moderation bot that uses AI to detect and respond to disrespectful messages.\n\n"
+            "**What I do:**\n"
+            "• Monitor channels for disrespectful content\n"
+            "• Analyze conversation context to detect patterns of disrespect\n"
+            "• Send warnings when disrespectful messages or patterns are detected\n"
+            "• Help maintain a positive community atmosphere\n\n"
+            "I don't have commands yet, but I'm always watching to help keep conversations respectful."
+        )
+
+    @staticmethod
+    def format_mod_log(user, channel, message_content, reason, is_conversation=False):
+        """
+        Format a moderation log entry
+        
+        Args:
+            user (discord.User or dict): The user who sent the message
+            channel (discord.TextChannel): The channel where the message was sent
+            message_content (str): The content of the message
+            reason (str): The reason for moderation
+            is_conversation (bool): Whether this is from conversation analysis
+            
+        Returns:
+            str: Formatted moderation log message
+        """
+        # Handle different user object types
+        user_name = user.name if hasattr(user, 'name') else user.get('name', 'Unknown')
+        user_id = user.id if hasattr(user, 'id') else user.get('id', 'Unknown')
+        
+        action_type = "**Conversation Moderation**" if is_conversation else "**Single Message Moderation**"
+        
+        return (
+            f"{action_type}\n"
+            f"**User:** {user_name} ({user_id})\n"
+            f"**Channel:** {channel.name} ({channel.id})\n"
+            f"**Content:** {message_content[:200]}{'...' if len(message_content) > 200 else ''}\n"
+            f"**Reason:** {reason}"
+        )
+
+================
+File: src/llm/client.py
+================
+"""
+Enhanced client for interacting with various LLM providers
+"""
+import logging
+import asyncio
+import json
+from typing import Dict, Any, Tuple, Optional, AsyncGenerator
+from datetime import datetime
+
+import aiohttp
+
+logger = logging.getLogger(__name__)
+
+class LLMClient:
+    """
+    Client for making requests to different LLM APIs
+    Supports multiple providers through a unified interface
+    """
+    def __init__(self, config):
+        """
+        Initialize the LLM client with configuration
+        
+        Args:
+            config: Configuration object with providers and settings
+        """
+        self.config = config
+        self.session = None
+        
+        # Define constants
+        self.OPENAI_COMPATIBLE_PROVIDERS = [
+            "openai", "groq", "openrouter", "ollama", 
+            "lmstudio", "vllm", "oobabooga"
+        ]
+        self.ANTHROPIC_PROVIDERS = ["anthropic"]
+        self.VISION_MODEL_TAGS = [
+            "gpt-4", "claude-3", "gemini", "gemma",
+            "pixtral", "mistral-small", "llava", "vision", "vl",
+        ]
+    
+    async def ensure_session(self):
+        """Ensure an aiohttp session exists"""
+        if self.session is None or self.session.closed:
+            self.session = aiohttp.ClientSession()
+    
+    async def close(self):
+        """Close the aiohttp session if it exists"""
+        if self.session is not None and not self.session.closed:
+            await self.session.close()
+            self.session = None
+    
+    def get_provider_and_model(self) -> Tuple[str, str]:
+        """
+        Parse the model string into provider and model name
+        
+        Returns:
+            tuple: (provider, model)
+        """
+        if "/" not in self.config.model:
+            # Default to OpenAI if no provider specified
+            return "openai", self.config.model
+        
+        provider, model = self.config.model.split("/", 1)
+        return provider, model
+    
+    def model_supports_images(self, model: str) -> bool:
+        """
+        Check if the model supports image inputs
+        
+        Args:
+            model (str): The model name
+            
+        Returns:
+            bool: True if the model supports images
+        """
+        return any(tag in model.lower() for tag in self.VISION_MODEL_TAGS)
+    
+    def prepare_system_message(self) -> Dict[str, str]:
+        """
+        Prepare the system message with appropriate context
+        
+        Returns:
+            dict: The system message in the appropriate format
+        """
+        if not self.config.system_prompt:
+            return {}
+
+        system_prompt_extras = [f"Today's date: {datetime.now().strftime('%B %d %Y')}."]
+        full_system_prompt = "\n".join([self.config.system_prompt] + system_prompt_extras)
+        
+        return {"role": "system", "content": full_system_prompt}
+    
+    async def get_completion(self, prompt: str, max_tokens: int = 1000, temperature: float = 0.0) -> str:
+        """
+        Get a completion from the LLM API
+        
+        Args:
+            prompt (str): The prompt to send to the LLM
+            max_tokens (int): Maximum number of tokens to generate
+            temperature (float): Sampling temperature (0.0 = deterministic)
+            
+        Returns:
+            str: The generated completion text
+        """
+        provider, model = self.get_provider_and_model()
+        
+        if provider in self.OPENAI_COMPATIBLE_PROVIDERS:
+            return await self._get_openai_completion(
+                provider, model, prompt, max_tokens, temperature
+            )
+        elif provider in self.ANTHROPIC_PROVIDERS:
+            return await self._get_anthropic_completion(
+                provider, model, prompt, max_tokens, temperature
+            )
+        # Add other provider types as needed
+        else:
+            raise ValueError(f"Unsupported provider: {provider}")
+    
+    async def _get_openai_completion(
+        self, provider: str, model: str, prompt: str, max_tokens: int, temperature: float
+    ) -> str:
+        """
+        Get a completion from an OpenAI-compatible API
+        
+        Args:
+            provider (str): The provider name
+            model (str): The model name
+            prompt (str): The prompt to send to the LLM
+            max_tokens (int): Maximum number of tokens to generate
+            temperature (float): Sampling temperature
+            
+        Returns:
+            str: The generated completion text
+        """
+        await self.ensure_session()
+        
+        provider_config = self.config.providers.get(provider, {})
+        base_url = provider_config.get("base_url", "https://api.openai.com/v1")
+        api_key = provider_config.get("api_key", "")
+        
+        headers = {
+            "Content-Type": "application/json",
+        }
+        
+        # Add authentication header if API key is provided
+        if api_key:
+            # Different providers might use different auth header formats
+            if provider == "openrouter":
+                headers["Authorization"] = f"Bearer {api_key}"
+                headers["HTTP-Referer"] = "https://github.com/yourname/discordllmoderator"
+                headers["X-Title"] = "DiscordLLModerator"
+            else:
+                headers["Authorization"] = f"Bearer {api_key}"
+        
+        # Prepare the payload with system message and user prompt
+        messages = []
+        
+        # Add system message if configured
+        system_message = self.prepare_system_message()
+        if system_message:
+            messages.append(system_message)
+        
+        # Add user message
+        messages.append({"role": "user", "content": prompt})
+        
+        # Get additional parameters from config
+        extra_params = self.config.extra_api_parameters.copy() if hasattr(self.config, "extra_api_parameters") else {}
+        
+        # Override with provided parameters
+        extra_params.update({
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        })
+        
+        payload = {
+            "model": model,
+            "messages": messages,
+            **extra_params
+        }
+        
+        try:
+            async with self.session.post(
+                f"{base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+                raise_for_status=True
+            ) as response:
+                result = await response.json()
+                return result["choices"][0]["message"]["content"]
+        except Exception as e:
+            logger.error(f"Error calling {provider} API: {e}")
+            return f"Error generating response: {str(e)}"
+    
+    async def _get_anthropic_completion(
+        self, provider: str, model: str, prompt: str, max_tokens: int, temperature: float
+    ) -> str:
+        """
+        Get a completion from Anthropic API
+        
+        Args:
+            provider (str): The provider name
+            model (str): The model name
+            prompt (str): The prompt to send to the LLM
+            max_tokens (int): Maximum number of tokens to generate
+            temperature (float): Sampling temperature
+            
+        Returns:
+            str: The generated completion text
+        """
+        await self.ensure_session()
+        
+        provider_config = self.config.providers.get(provider, {})
+        base_url = provider_config.get("base_url", "https://api.anthropic.com/v1")
+        api_key = provider_config.get("api_key", "")
+        
+        if not api_key:
+            return "Error: Anthropic API key is required"
+        
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01"
+        }
+        
+        # Prepare system message
+        system = self.config.system_prompt
+        
+        # Prepare the payload
+        payload = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": [
+                {"role": "user", "content": prompt}
+            ]
+        }
+        
+        # Add system message if present
+        if system:
+            payload["system"] = system
+        
+        try:
+            async with self.session.post(
+                f"{base_url}/messages",
+                headers=headers,
+                json=payload,
+                raise_for_status=True
+            ) as response:
+                result = await response.json()
+                return result["content"][0]["text"]
+        except Exception as e:
+            logger.error(f"Error calling Anthropic API: {e}")
+            return f"Error generating response: {str(e)}"
+    
+    async def generate_response(self, messages) -> AsyncGenerator[Tuple[str, Optional[str]], None]:
+        """
+        Generate a streaming response from the LLM
+        Yields tuples of (content_delta, finish_reason)
+        
+        Args:
+            messages: The messages to send to the LLM
+            
+        Yields:
+            tuple: (content_delta, finish_reason)
+        """
+        provider, model = self.get_provider_and_model()
+        
+        if provider in self.OPENAI_COMPATIBLE_PROVIDERS:
+            async for content, finish_reason in self._generate_openai_stream(provider, model, messages):
+                yield content, finish_reason
+        elif provider in self.ANTHROPIC_PROVIDERS:
+            async for content, finish_reason in self._generate_anthropic_stream(provider, model, messages):
+                yield content, finish_reason
+        # Add other provider types as needed
+        else:
+            yield f"Error: Unsupported provider {provider}", "error"
+    
+    async def _generate_openai_stream(self, provider: str, model: str, messages) -> AsyncGenerator[Tuple[str, Optional[str]], None]:
+        """
+        Generate a streaming response from an OpenAI-compatible API
+        
+        Args:
+            provider (str): The provider name
+            model (str): The model name
+            messages: The messages to send to the LLM
+            
+        Yields:
+            tuple: (content_delta, finish_reason)
+        """
+        await self.ensure_session()
+        
+        provider_config = self.config.providers.get(provider, {})
+        base_url = provider_config.get("base_url", "https://api.openai.com/v1")
+        api_key = provider_config.get("api_key", "")
+        
+        headers = {
+            "Content-Type": "application/json",
+        }
+        
+        # Add authentication header if API key is provided
+        if api_key:
+            # Different providers might use different auth header formats
+            if provider == "openrouter":
+                headers["Authorization"] = f"Bearer {api_key}"
+                headers["HTTP-Referer"] = "https://github.com/yourname/discordllmoderator"
+                headers["X-Title"] = "DiscordLLModerator"
+            else:
+                headers["Authorization"] = f"Bearer {api_key}"
+        
+        # Get additional parameters from config
+        extra_params = self.config.extra_api_parameters.copy() if hasattr(self.config, "extra_api_parameters") else {}
+        
+        payload = {
+            "model": model,
+            "messages": messages,
+            "stream": True,
+            **extra_params
+        }
+        
+        try:
+            async with self.session.post(
+                f"{base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=60
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logger.error(f"Error from {provider} API: {response.status} - {error_text}")
+                    yield f"Error: {response.status} - {error_text}", "error"
+                    return
+                
+                # Process streaming response
+                buffer = ""
+                async for line in response.content:
+                    line = line.decode('utf-8').strip()
+                    if not line:
+                        continue
+                    if line == "data: [DONE]":
+                        break
+                    
+                    if line.startswith("data: "):
+                        data = line[6:]  # Remove 'data: ' prefix
+                        try:
+                            chunk = json.loads(data)
+                            
+                            # Extract content and finish_reason
+                            delta = chunk.get("choices", [{}])[0].get("delta", {})
+                            finish_reason = chunk.get("choices", [{}])[0].get("finish_reason")
+                            content = delta.get("content", "")
+                            
+                            yield content, finish_reason
+                            
+                            if finish_reason is not None:
+                                break
+                                
+                        except json.JSONDecodeError:
+                            buffer += data
+                            
+                # Handle any buffered data
+                if buffer:
+                    try:
+                        chunk = json.loads(buffer)
+                        content = chunk.get("choices", [{}])[0].get("message", {}).get("content", "")
+                        finish_reason = chunk.get("choices", [{}])[0].get("finish_reason")
+                        yield content, finish_reason
+                    except json.JSONDecodeError:
+                        pass
+                        
+        except Exception as e:
+            logger.error(f"Error in streaming from {provider} API: {e}")
+            yield f"Error generating response: {str(e)}", "error"
+    
+    async def _generate_anthropic_stream(self, provider: str, model: str, messages) -> AsyncGenerator[Tuple[str, Optional[str]], None]:
+        """
+        Generate a streaming response from Anthropic API
+        
+        Args:
+            provider (str): The provider name
+            model (str): The model name
+            messages: The messages to send to the LLM
+            
+        Yields:
+            tuple: (content_delta, finish_reason)
+        """
+        await self.ensure_session()
+        
+        provider_config = self.config.providers.get(provider, {})
+        base_url = provider_config.get("base_url", "https://api.anthropic.com/v1")
+        api_key = provider_config.get("api_key", "")
+        
+        if not api_key:
+            yield "Error: Anthropic API key is required", "error"
+            return
+        
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01"
+        }
+        
+        # Get additional parameters from config
+        extra_params = self.config.extra_api_parameters.copy() if hasattr(self.config, "extra_api_parameters") else {}
+        
+        # Extract system message if present
+        system_message = next((msg for msg in messages if msg.get("role") == "system"), None)
+        system = system_message.get("content", "") if system_message else self.config.system_prompt
+        
+        # Filter out system messages as Anthropic handles them differently
+        filtered_messages = [msg for msg in messages if msg.get("role") != "system"]
+        
+        payload = {
+            "model": model,
+            "messages": filtered_messages,
+            "stream": True,
+            **extra_params
+        }
+        
+        # Add system message if present
+        if system:
+            payload["system"] = system
+        
+        try:
+            async with self.session.post(
+                f"{base_url}/messages",
+                headers=headers,
+                json=payload,
+                timeout=60
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logger.error(f"Error from Anthropic API: {response.status} - {error_text}")
+                    yield f"Error: {response.status} - {error_text}", "error"
+                    return
+                
+                # Process streaming response
+                async for line in response.content:
+                    line = line.decode('utf-8').strip()
+                    if not line:
+                        continue
+                    if line == "data: [DONE]":
+                        break
+                    
+                    if line.startswith("data: "):
+                        data = line[6:]  # Remove 'data: ' prefix
+                        try:
+                            chunk = json.loads(data)
+                            
+                            # Extract content and stop_reason
+                            delta = chunk.get("delta", {})
+                            stop_reason = chunk.get("stop_reason")
+                            content = delta.get("text", "")
+                            
+                            # Convert Anthropic's stop_reason to OpenAI-like finish_reason
+                            finish_reason = None
+                            if stop_reason:
+                                finish_reason = "stop" if stop_reason == "end_turn" else stop_reason
+                            
+                            yield content, finish_reason
+                            
+                            if finish_reason is not None:
+                                break
+                                
+                        except json.JSONDecodeError:
+                            pass
+                        
+        except Exception as e:
+            logger.error(f"Error in streaming from Anthropic API: {e}")
+            yield f"Error generating response: {str(e)}", "error"
+
+================
+File: src/llm/moderation.py
+================
+"""
+Enhanced moderation service that uses LLM to detect disrespectful messages with conversation context
+"""
+import logging
+import json
+import re
+import asyncio
+from typing import Dict, List, Tuple, Any, Optional
+from src.llm.prompts import MODERATION_PROMPT, CONVERSATION_MODERATION_PROMPT
+
+logger = logging.getLogger(__name__)
+
+class ModerationService:
+    """
+    Service that analyzes messages using LLM to detect disrespectful content
+    Now with support for contextual conversation analysis
+    """
+    def __init__(self, llm_client, context_manager=None):
+        """
+        Initialize the moderation service with an LLM client
+        
+        Args:
+            llm_client: The LLM client to use for moderation
+            context_manager: ConversationContextManager instance (optional)
+        """
+        self.llm_client = llm_client
+        self.context_manager = context_manager
+        self._lock = asyncio.Lock()  # Add a lock to prevent concurrent API calls
+    
+    async def should_moderate(self, message_content):
+        """
+        Check if a message should be moderated based on content
+        
+        Args:
+            message_content (str): The content of the message to check
+            
+        Returns:
+            tuple: (should_moderate, reason)
+                - should_moderate (bool): Whether the message should be moderated
+                - reason (str): The reason for moderation, if applicable
+        """
+        if not message_content.strip():
+            return False, ""
+            
+        # Prepare the prompt with the message content
+        prompt = MODERATION_PROMPT.format(message=message_content)
+        
+        # Use a lock to prevent too many concurrent API calls
+        try:
+            async with self._lock:
+                try:
+                    # Get response from LLM
+                    response = await self.llm_client.get_completion(prompt)
+                    
+                    # Try to parse the JSON response, handling markdown formatting
+                    result = extract_json_from_llm_response(response)
+                    
+                    if result:
+                        should_moderate = result.get("should_moderate", False)
+                        reason = result.get("reason", "")
+                        
+                        return should_moderate, reason
+                    
+                    # Fallback if JSON extraction fails
+                    logger.warning(f"Failed to extract JSON from LLM response: {response}")
+                    
+                    # Simple heuristic fallback
+                    if "yes" in response.lower() and "because" in response.lower():
+                        return True, "Your message was flagged as potentially disrespectful."
+                    return False, ""
+                        
+                except Exception as e:
+                    logger.error(f"Error getting LLM completion: {e}")
+                    return False, ""
+        except Exception as e:
+            logger.error(f"Lock handling error in moderation service: {e}")
+            return False, ""  # Ensure we return even if lock fails
+        
+    async def analyze_conversation(self, channel_id, message_limit=None):
+        """
+        Analyze a conversation for disrespectful content by looking at recent messages
+        
+        Args:
+            channel_id: The Discord channel ID
+            message_limit (int, optional): Number of messages to analyze
+            
+        Returns:
+            dict: Analysis result containing:
+                - needs_moderation (bool): Whether moderation is needed
+                - violators (list): List of dict with users who violated rules
+                    Each dict contains user_id, user_name, and reason
+                - summary (str): Summary of moderation decision
+        """
+        if not self.context_manager:
+            logger.warning("ConversationContextManager not provided, cannot analyze conversation")
+            return {"needs_moderation": False, "violators": [], "summary": "Context manager not available"}
+        
+        # Get conversation context
+        conversation = self.context_manager.get_formatted_context(channel_id, message_limit)
+        
+        if not conversation:
+            return {"needs_moderation": False, "violators": [], "summary": "No conversation to analyze"}
+        
+        # Prepare the prompt for conversation analysis
+        prompt = CONVERSATION_MODERATION_PROMPT.format(
+            conversation=json.dumps(conversation, indent=2)
+        )
+        
+        # Use a lock to prevent too many concurrent API calls
+        try:
+            async with self._lock:
+                try:
+                    # Get response from LLM
+                    response = await self.llm_client.get_completion(prompt)
+                    
+                    # Try to parse the JSON response, handling markdown formatting
+                    result = extract_json_from_llm_response(response)
+                    
+                    if result:
+                        return {
+                            "needs_moderation": result.get("needs_moderation", False),
+                            "violators": result.get("violators", []),
+                            "summary": result.get("summary", "")
+                        }
+                    
+                    # Fallback if JSON extraction fails
+                    logger.warning(f"Failed to extract JSON from LLM conversation analysis: {response}")
+                    return {
+                        "needs_moderation": False, 
+                        "violators": [], 
+                        "summary": "Error parsing LLM response"
+                    }
+                        
+                except Exception as e:
+                    logger.error(f"Error analyzing conversation: {e}")
+                    return {
+                        "needs_moderation": False, 
+                        "violators": [], 
+                        "summary": f"Error: {str(e)}"
+                    }
+        except Exception as e:
+            logger.error(f"Lock handling error in conversation analysis: {e}")
+            return {
+                "needs_moderation": False, 
+                "violators": [], 
+                "summary": f"Error: {str(e)}"
+            }
+        
+def extract_json_from_llm_response(response_text):
+    """
+    Extract JSON from LLM response text, handling markdown formatting
+    
+    Args:
+        response_text (str): The raw response text from the LLM
+        
+    Returns:
+        dict: The parsed JSON object, or empty dict if parsing fails
+    """
+    import json
+    import re
+    
+    # First try direct JSON parsing
+    try:
+        return json.loads(response_text)
+    except json.JSONDecodeError:
+        pass
+    
+    # Try to extract JSON from markdown code blocks
+    json_pattern = r"```(?:json)?\s*([\s\S]*?)\s*```"
+    match = re.search(json_pattern, response_text)
+    if match:
+        try:
+            json_str = match.group(1)
+            return json.loads(json_str)
+        except json.JSONDecodeError:
+            pass
+    
+    # Try to find anything that looks like JSON with curly braces
+    # This is a fallback for malformed responses
+    json_pattern = r"\{[\s\S]*?\}"
+    match = re.search(json_pattern, response_text)
+    if match:
+        try:
+            json_str = match.group(0)
+            return json.loads(json_str)
+        except json.JSONDecodeError:
+            pass
+    
+    # Return empty dict if all parsing attempts fail
+    return {}
+
+================
+File: src/llm/prompts.py
+================
+"""
+Optimized prompts for Discord moderation with scam/spam detection
+"""
+
+MODERATION_PROMPT = """
+You're a Discord mod for a friendly community. Determine if this message needs moderation:
+
+Message: "{message}"
+
+Flag patterns of:
+- Severe toxicity beyond banter
+- Harassment, threats
+- Scams, phishing, suspicious links
+- Message spam or flooding
+- Unsolicited advertising
+
+Respond with JSON:
+{{
+    "should_moderate": true/false,
+    "reason": "Brief explanation if applicable"
+}}
+
+DON'T flag:
+- Teasing, jokes, sarcasm
+- Swearing
+- Wild Disagreements or dark humor
+- Memes or occasional content sharing via harmless links
+
+Only moderate genuinely harmful behavior. Watch for suspicious links, unrealistic promises, personal info requests, or promotional patterns.
+
+Respond ONLY with the JSON object.
+"""
+
+CONVERSATION_MODERATION_PROMPT = """
+You're a Discord mod for a friendly community. Analyze this conversation for moderation needs:
+
+Conversation:
+{conversation}
+
+Flag patterns of:
+- Severe toxicity beyond banter
+- Harassment, threats
+- Scams, phishing, suspicious links
+- Message spam or flooding
+- Unsolicited advertising
+
+Respond with JSON:
+{{
+    "needs_moderation": true/false,
+    "violators": [
+        {{
+            "user_id": "user_id_string",
+            "user_name": "username",
+            "reason": "Brief explanation"
+        }}
+    ],
+    "summary": "Brief decision summary"
+}}
+
+DON'T flag:
+- Teasing, jokes, sarcasm
+- Swearing
+- Wild Disagreements or dark humor
+- Memes or occasional content sharing via harmless links
+
+Only moderate genuinely harmful behavior. Watch for suspicious links, unrealistic promises, personal info requests, or promotional patterns.
+
+Respond ONLY with the JSON object.
+"""
+
+================
+File: src/utils/conversation_context.py
+================
+"""
+Conversation context manager for tracking message history in channels
+"""
+import logging
+from collections import defaultdict, deque
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from typing import Dict, List, Deque, Optional
+
+logger = logging.getLogger(__name__)
+
+@dataclass
+class MessageContext:
+    """
+    Data class for storing message context information
+    """
+    message_id: int
+    author_id: int
+    author_name: str
+    content: str
+    timestamp: datetime
+    
+    def to_dict(self):
+        """Convert to dictionary for LLM processing"""
+        return {
+            "author_name": self.author_name,
+            "author_id": str(self.author_id),
+            "content": self.content,
+            "timestamp": self.timestamp.isoformat()
+        }
+
+class ConversationContextManager:
+    """
+    Manages conversation context by keeping track of recent messages per channel
+    """
+    def __init__(self, max_messages_per_channel=25, max_age_minutes=60):
+        """
+        Initialize the conversation context manager
+        
+        Args:
+            max_messages_per_channel (int): Maximum number of messages to store per channel
+            max_age_minutes (int): Maximum age of messages to keep in minutes
+        """
+        self.max_messages = max_messages_per_channel
+        self.max_age = timedelta(minutes=max_age_minutes)
+        # Dictionary of channel_id -> deque of MessageContext objects
+        self.channel_messages: Dict[int, Deque[MessageContext]] = defaultdict(
+            lambda: deque(maxlen=max_messages_per_channel)
+        )
+        self.logger = logging.getLogger(__name__)
+    
+    def add_message(self, message):
+        """
+        Add a message to the context
+        
+        Args:
+            message: Discord message object
+        """
+        # Create a message context object
+        # Ensure timestamp is timezone-aware
+        timestamp = message.created_at
+        if timestamp.tzinfo is None:
+            # If the timestamp is naive, make it aware using UTC timezone
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+            
+        ctx = MessageContext(
+            message_id=message.id,
+            author_id=message.author.id,
+            author_name=message.author.name,
+            content=message.content,
+            timestamp=timestamp
+        )
+        
+        # Add to the appropriate channel's deque
+        channel_id = message.channel.id
+        self.channel_messages[channel_id].append(ctx)
+        
+        # Log debug information
+        self.logger.debug(
+            f"Added message to context for channel {channel_id}, "
+            f"now tracking {len(self.channel_messages[channel_id])} messages"
+        )
+    
+    def get_conversation_context(self, channel_id, num_messages=None) -> List[MessageContext]:
+        """
+        Get the conversation context for a channel
+        
+        Args:
+            channel_id: Discord channel ID
+            num_messages (int, optional): Number of messages to return. 
+                                         If None, returns all messages up to max_messages.
+        
+        Returns:
+            list: List of MessageContext objects, ordered from oldest to newest
+        """
+        # Clean up old messages first
+        self._clean_old_messages(channel_id)
+        
+        # Get the channel's message queue
+        messages = list(self.channel_messages.get(channel_id, []))
+        
+        # Limit to the requested number of messages
+        if num_messages is not None and num_messages < len(messages):
+            messages = messages[-num_messages:]
+        
+        return messages
+    
+    def get_formatted_context(self, channel_id, num_messages=None) -> List[Dict]:
+        """
+        Get the conversation context in a format suitable for LLM processing
+        
+        Args:
+            channel_id: Discord channel ID
+            num_messages (int, optional): Number of messages to include
+            
+        Returns:
+            list: List of message dictionaries with author and content
+        """
+        messages = self.get_conversation_context(channel_id, num_messages)
+        return [msg.to_dict() for msg in messages]
+    
+    def _clean_old_messages(self, channel_id):
+        """
+        Remove messages older than max_age
+        
+        Args:
+            channel_id: Discord channel ID
+        """
+        if channel_id not in self.channel_messages or not self.channel_messages[channel_id]:
+            return
+            
+        # Get current time in UTC with timezone awareness
+        now = datetime.now(timezone.utc)
+        
+        while (self.channel_messages[channel_id] and 
+               now - self.channel_messages[channel_id][0].timestamp > self.max_age):
+            old_msg = self.channel_messages[channel_id].popleft()
+            self.logger.debug(f"Removed old message from {old_msg.author_name} (age: {now - old_msg.timestamp})")
+
+================
+File: src/utils/logging.py
+================
+"""
+Logging utilities for DiscordLLModerator
+"""
+import logging
+import os
+import sys
+from logging.handlers import RotatingFileHandler
+from pythonjsonlogger import jsonlogger
+
+def setup_logging(log_level=None):
+    """
+    Set up logging configuration for the application
+    
+    Args:
+        log_level (str, optional): Log level to use. Defaults to None.
+            If None, the LOG_LEVEL environment variable is used, or INFO if not set.
+    """
+    # Determine log level
+    if log_level is None:
+        log_level = os.getenv("LOG_LEVEL", "INFO")
+    
+    # Create logs directory if it doesn't exist
+    log_dir = "logs"
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    
+    # Set up root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+    
+    # Remove existing handlers to avoid duplicates
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    
+    # Create console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(log_level)
+    console_formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    console_handler.setFormatter(console_formatter)
+    
+    # Create file handler for JSON logs
+    json_handler = RotatingFileHandler(
+        os.path.join(log_dir, "discord_llmoderator.log"),
+        maxBytes=10 * 1024 * 1024,  # 10 MB
+        backupCount=5
+    )
+    json_handler.setLevel(log_level)
+    json_formatter = jsonlogger.JsonFormatter(
+        "%(asctime)s %(name)s %(levelname)s %(message)s %(pathname)s %(lineno)s"
+    )
+    json_handler.setFormatter(json_formatter)
+    
+    # Add handlers to root logger
+    root_logger.addHandler(console_handler)
+    root_logger.addHandler(json_handler)
+    
+    # Create a logger for this module
+    logger = logging.getLogger(__name__)
+    logger.info(f"Logging initialized at level {log_level}")
+    
+    return root_logger
+
+def get_logger(name):
+    """
+    Get a logger with the given name
+    
+    Args:
+        name (str): Name of the logger
+        
+    Returns:
+        logging.Logger: The logger instance
+    """
+    return logging.getLogger(name)
+
+class LoggerMixin:
+    """
+    Mixin to add logging capabilities to a class
+    """
+    @property
+    def logger(self):
+        """Get a logger for this class"""
+        if not hasattr(self, "_logger"):
+            self._logger = logging.getLogger(f"{self.__class__.__module__}.{self.__class__.__name__}")
+        return self._logger
+
+================
+File: src/utils/message_queue.py
+================
+"""
+Queue for handling Discord messages for moderation
+"""
+import logging
+from collections import deque
+import asyncio
+
+logger = logging.getLogger(__name__)
+
+class MessageQueue:
+    """
+    A queue for processing Discord messages
+    
+    This queue allows the bot to process messages asynchronously,
+    preventing the bot from getting overwhelmed during high traffic.
+    """
+    def __init__(self, max_size=100):
+        """
+        Initialize the message queue
+        
+        Args:
+            max_size (int): Maximum number of messages to keep in the queue
+        """
+        self.queue = deque(maxlen=max_size)
+        self.max_size = max_size
+        self._lock = asyncio.Lock()  # Add lock to prevent race conditions
+    
+    async def put(self, message):
+        """
+        Add a message to the queue (async version)
+        
+        Args:
+            message: The Discord message to add
+        """
+        async with self._lock:
+            # If the queue is full, log a warning
+            if len(self.queue) >= self.max_size:
+                logger.warning("Message queue is full, dropping oldest message")
+            
+            # Add the message to the queue
+            self.queue.append(message)
+            logger.debug(f"Added message to queue, current size: {len(self.queue)}")
+    
+    def put_sync(self, message):
+        """
+        Add a message to the queue (sync version for legacy compatibility)
+        
+        Args:
+            message: The Discord message to add
+        """
+        # If the queue is full, log a warning
+        if len(self.queue) >= self.max_size:
+            logger.warning("Message queue is full, dropping oldest message")
+        
+        # Add the message to the queue
+        self.queue.append(message)
+        logger.debug(f"Added message to queue, current size: {len(self.queue)}")
+    
+    async def get(self):
+        """
+        Get the next message from the queue
+        
+        Returns:
+            The next Discord message, or None if the queue is empty
+        """
+        async with self._lock:
+            if self.is_empty():
+                return None
+            
+            message = self.queue.popleft()
+            logger.debug(f"Retrieved message from queue, remaining: {len(self.queue)}")
+            return message
+    
+    def is_empty(self):
+        """
+        Check if the queue is empty
+        
+        Returns:
+            bool: True if the queue is empty, False otherwise
+        """
+        return len(self.queue) == 0
+    
+    def size(self):
+        """
+        Get the current size of the queue
+        
+        Returns:
+            int: The number of messages in the queue
+        """
+        return len(self.queue)
+
+================
+File: src/bot.py
+================
+"""
+Enhanced main bot class for DiscordLLModerator with conversation context analysis and fixed error handling
+"""
+import asyncio
+import logging
+import time
+import traceback
+from typing import Dict, Any, List, Optional
+from discord import Intents, Client
+
+from src.discord.client import setup_discord_client
+from src.discord.events import register_events
+from src.discord.responses import ResponseTemplates
+from src.llm.client import LLMClient
+from src.llm.moderation import ModerationService
+from src.utils.message_queue import MessageQueue
+from src.utils.conversation_context import ConversationContextManager
+from src.utils.logging import setup_logging
+
+class DiscordLLModerator:
+    """
+    Main bot class that manages the Discord client and LLM moderation
+    Now with support for conversation context analysis and improved error handling
+    """
+    def __init__(self, config):
+        """Initialize the bot with provided configuration"""
+        # Set up logging
+        setup_logging(config.log_level)
+        self.logger = logging.getLogger(__name__)
+        self.config = config
+        self.running = False
+        
+        # Set up Discord client with required intents
+        intents = Intents.default()
+        intents.message_content = True  # Required to read message content
+        intents.guild_messages = True   # Required to read guild messages
+        
+        # Initialize components
+        self.message_queue = MessageQueue(max_size=100)
+        
+        # Initialize conversation context manager
+        self.context_manager = ConversationContextManager(
+            max_messages_per_channel=config.max_messages,
+            max_age_minutes=config.conversation_max_age
+        )
+        
+        self.llm_client = LLMClient(config)
+        
+        # Pass the context manager to the moderation service
+        self.moderation_service = ModerationService(self.llm_client, self.context_manager)
+        
+        self.discord_client = setup_discord_client(intents)
+        
+        # Register event handlers
+        register_events(self.discord_client, self)
+        
+        # Keep track of channels and when they were last analyzed
+        self.channel_last_analyzed = {}
+        self.channel_analysis_interval = config.conversation_interval  # Interval between conversation analyses
+    
+    async def process_message_queue(self):
+        """Process messages in the queue and check for moderation issues"""
+        self.logger.info("Message queue processor started")
+        
+        # Track processing stats
+        stats: Dict[str, Any] = {
+            "messages_processed": 0,
+            "messages_moderated": 0,
+            "conversations_analyzed": 0,
+            "last_report_time": time.time()
+        }
+        
+        while self.running:  # Changed from "while True" for clarity
+            try:
+                # Process messages in the queue
+                if not self.message_queue.is_empty():
+                    message = await self.message_queue.get()  # Use async get
+                    
+                    if message is None:
+                        await asyncio.sleep(0.1)  # Short sleep if no message
+                        continue
+                    
+                    # Skip messages from bots including our own
+                    if message.author.bot:
+                        continue
+                    
+                    self.logger.debug(f"Processing message: {message.content[:50]}...")
+                    stats["messages_processed"] += 1
+                    
+                    try:
+                        # Get moderation result for individual message from LLM
+                        should_moderate, reason = await self.moderation_service.should_moderate(message.content)
+                        
+                        self.logger.debug(f"Moderation result for message: {should_moderate}, reason: {reason[:50] if reason else 'None'}...")
+                        
+                        if should_moderate:
+                            stats["messages_moderated"] += 1
+                            self.logger.info(f"Moderating message from {message.author.name}: {reason}")
+                            
+                            # Use response template for warning message
+                            warning_message = ResponseTemplates.get_disrespect_warning(
+                                message.author.mention, 
+                                reason
+                            )
+                            await message.channel.send(warning_message)
+                            
+                            # Log to moderation channel if configured
+                            await self._log_to_moderation_channel(
+                                message.author,
+                                message.channel,
+                                message.content,
+                                reason
+                            )
+                    except Exception as e:
+                        self.logger.error(f"Error processing individual message: {e}", exc_info=True)
+                    
+                    try:
+                        # Check if we should perform conversation analysis
+                        channel_id = message.channel.id
+                        current_time = time.time()
+                        
+                        # Check if it's time to analyze this channel's conversation
+                        if channel_id not in self.channel_last_analyzed or \
+                          (current_time - self.channel_last_analyzed[channel_id] >= self.channel_analysis_interval):
+                            
+                            # Update the last analyzed time
+                            self.channel_last_analyzed[channel_id] = current_time
+                            
+                            # Analyze the conversation
+                            await self._analyze_conversation(message.channel)
+                            stats["conversations_analyzed"] += 1
+                    except Exception as e:
+                        self.logger.error(f"Error during conversation analysis: {e}", exc_info=True)
+                
+                # Report stats periodically (every 10 minutes)
+                current_time = time.time()
+                if current_time - stats["last_report_time"] > 600:  # 10 minutes
+                    if stats["messages_processed"] > 0:
+                        moderation_rate = (stats["messages_moderated"] / stats["messages_processed"]) * 100
+                        self.logger.info(
+                            f"Stats: Processed {stats['messages_processed']} messages, "
+                            f"moderated {stats['messages_moderated']} "
+                            f"({moderation_rate:.1f}%), "
+                            f"analyzed {stats['conversations_analyzed']} conversations"
+                        )
+                    stats["last_report_time"] = current_time
+                
+                # Sleep to prevent hammering the CPU
+                await asyncio.sleep(0.1)  # Reduced sleep time for more responsive processing
+            except Exception as e:
+                self.logger.error(f"Unhandled error in message processor: {e}", exc_info=True)
+                # Continue running even after errors - don't break the loop
+                await asyncio.sleep(1)  # Sleep a bit longer after an error
+    
+    async def _analyze_conversation(self, channel):
+        """
+        Analyze conversation context for a channel
+        
+        Args:
+            channel: Discord channel object
+        """
+        try:
+            self.logger.debug(f"Analyzing conversation in channel {channel.name}")
+            
+            analysis = await self.moderation_service.analyze_conversation(
+                channel.id, 
+                message_limit=self.config.max_messages
+            )
+            
+            if analysis["needs_moderation"]:
+                self.logger.info(
+                    f"Conversation moderation needed in {channel.name}: "
+                    f"{len(analysis['violators'])} violators found"
+                )
+                
+                # Handle each violator
+                for violator in analysis["violators"]:
+                    # Use response template for warning message
+                    user_id = violator["user_id"]
+                    user_name = violator["user_name"]
+                    reason = violator["reason"]
+                    
+                    # Format the mention
+                    user_mention = f"<@{user_id}>"
+                    
+                    # Send contextual warning
+                    warning_message = ResponseTemplates.get_contextual_warning(
+                        user_mention,
+                        reason
+                    )
+                    await channel.send(warning_message)
+                    
+                    # Log to moderation channel
+                    await self._log_to_moderation_channel(
+                        {"id": user_id, "name": user_name},  # Mock user object with necessary fields
+                        channel,
+                        "Multiple messages in conversation",
+                        reason,
+                        is_conversation=True
+                    )
+            else:
+                self.logger.debug(f"No conversation moderation needed in {channel.name}")
+        except Exception as e:
+            self.logger.error(f"Error in _analyze_conversation: {e}", exc_info=True)
+    
+    async def _log_to_moderation_channel(self, user, channel, content, reason, is_conversation=False):
+        """
+        Log moderation action to the moderation channel
+        
+        Args:
+            user: Discord user object or dict with id and name
+            channel: Discord channel object
+            content: Message content
+            reason: Moderation reason
+            is_conversation: Whether this is from conversation analysis
+        """
+        if not self.config.moderation_channel_id:
+            return
+            
+        try:
+            mod_channel = await self.discord_client.fetch_channel(
+                int(self.config.moderation_channel_id)
+            )
+            
+            mod_log = ResponseTemplates.format_mod_log(
+                user,
+                channel,
+                content,
+                reason,
+                is_conversation
+            )
+            
+            await mod_channel.send(mod_log)
+        except Exception as e:
+            self.logger.error(f"Failed to log to moderation channel: {e}")
+    
+    async def run(self):
+        """Run the Discord bot and message processor"""
+        # Set the running flag
+        self.running = True
+        
+        try:
+            # Start the message processing task
+            self.processor_task = asyncio.create_task(self.process_message_queue())
+            
+            # Log startup information with provider and model
+            provider, model = self.config.model.split("/", 1) if "/" in self.config.model else ("default", self.config.model)
+            self.logger.info(f"Starting bot with LLM provider: {provider}, model: {model}")
+            self.logger.info(f"Conversation analysis will run every {self.channel_analysis_interval} seconds")
+            self.logger.info(f"Keeping message context for up to {self.config.conversation_max_age} minutes")
+            
+            # Start the Discord client
+            await self.discord_client.start(self.config.bot_token)
+        except Exception as e:
+            self.running = False
+            self.logger.error(f"Error starting bot: {e}", exc_info=True)
+            raise
+    
+    async def shutdown(self):
+        """Handle graceful shutdown of the bot"""
+        self.logger.info("Shutting down bot")
+        self.running = False
+        
+        # Close the Discord client
+        if self.discord_client:
+            await self.discord_client.close()
+        
+        # Cancel the message processor task
+        if hasattr(self, 'processor_task') and not self.processor_task.done():
+            self.processor_task.cancel()
+            try:
+                await self.processor_task
+            except asyncio.CancelledError:
+                self.logger.info("Message processor task cancelled")
+            except Exception as e:
+                self.logger.error(f"Error cancelling processor task: {e}", exc_info=True)
+    
+    async def cleanup(self):
+        """Clean up resources on shutdown"""
+        # Close the LLM client if it has a close method
+        if hasattr(self.llm_client, 'close'):
+            try:
+                await self.llm_client.close()
+            except Exception as e:
+                self.logger.error(f"Error closing LLM client: {e}", exc_info=True)
+        
+        self.logger.info("Resource cleanup complete")
+
+================
+File: src/config.py
+================
+"""
+Enhanced configuration loading and management for DiscordLLModerator with conversation context support
+"""
+import os
+import logging
+import yaml
+from typing import Dict, Any, Optional
+from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
+
+class Config:
+    """
+    Configuration class for DiscordLLModerator
+    Handles loading configuration from YAML file
+    """
+    def __init__(self, config_file: str = "config/config.yaml"):
+        """
+        Initialize configuration from file
+        
+        Args:
+            config_file (str): Path to the configuration file
+        """
+        self.config_file = config_file
+        self.data = self._load_config()
+    
+    def _load_config(self) -> Dict[str, Any]:
+        """
+        Load configuration from YAML file
+        
+        Returns:
+            dict: Configuration data
+        """
+        try:
+            with open(self.config_file, 'r') as f:
+                return yaml.safe_load(f) or {}
+        except FileNotFoundError:
+            logger.warning(f"Configuration file {self.config_file} not found, using empty configuration")
+            return {}
+        except yaml.YAMLError as e:
+            logger.error(f"Error parsing configuration file: {e}")
+            return {}
+    
+    def reload(self) -> Dict[str, Any]:
+        """
+        Reload configuration from file
+        
+        Returns:
+            dict: Updated configuration data
+        """
+        self.data = self._load_config()
+        return self.data
+    
+    def get(self, key: str, default: Any = None) -> Any:
+        """
+        Get a configuration value
+        
+        Args:
+            key (str): The configuration key
+            default: Default value if key not found
+            
+        Returns:
+            The configuration value or default
+        """
+        return self.data.get(key, default)
+    
+    @property
+    def bot_token(self) -> str:
+        """Get the Discord bot token"""
+        return self.data.get("bot_token", "")
+    
+    @property
+    def status_message(self) -> str:
+        """Get the bot status message"""
+        return self.data.get("status_message", "")
+    
+    @property
+    def log_level(self) -> str:
+        """Get the logging level"""
+        return self.data.get("log_level", "INFO")
+    
+    @property
+    def max_messages(self) -> int:
+        """Get the maximum number of messages to store for context"""
+        return self.data.get("max_messages", 25)
+    
+    @property
+    def conversation_interval(self) -> int:
+        """Get the interval in seconds between conversation analyses"""
+        return self.data.get("conversation_interval", 300)  # Default: 5 minutes
+    
+    @property
+    def conversation_max_age(self) -> int:
+        """Get the maximum age in minutes of messages to keep for context"""
+        return self.data.get("conversation_max_age", 60)  # Default: 60 minutes
+    
+    @property
+    def moderation_channel_id(self) -> Optional[str]:
+        """Get the moderation channel ID"""
+        return self.data.get("moderation_channel_id")
+    
+    @property
+    def moderation_threshold(self) -> float:
+        """Get the moderation confidence threshold"""
+        return float(self.data.get("moderation_threshold", 0.7))
+    
+    @property
+    def providers(self) -> Dict[str, Dict[str, str]]:
+        """Get the configured LLM providers"""
+        return self.data.get("providers", {})
+    
+    @property
+    def model(self) -> str:
+        """Get the configured model"""
+        return self.data.get("model", "")
+    
+    @property
+    def system_prompt(self) -> str:
+        """Get the system prompt for the LLM"""
+        return self.data.get("system_prompt", "")
+    
+    @property
+    def extra_api_parameters(self) -> Dict[str, Any]:
+        """Get extra API parameters for LLM requests"""
+        return self.data.get("extra_api_parameters", {})
+
+def load_config(config_file: str = "config/config.yaml") -> Config:
+    """
+    Load the configuration
+    
+    Args:
+        config_file (str): Path to the configuration file
+        
+    Returns:
+        Config: Configuration object
+    """
+    config = Config(config_file)
+    
+    # Check for missing required values
+    missing = []
+    if not config.bot_token:
+        missing.append("bot_token")
+    
+    if not config.model:
+        missing.append("model")
+    
+    if not config.providers:
+        missing.append("providers")
+    
+    if missing:
+        logger.warning(f"Missing required configuration values: {', '.join(missing)}")
+    
+    return config
+
+================
+File: .python-version
+================
+3.12
+
+================
+File: main.py
+================
+#!/usr/bin/env python3
+"""
+DiscordLLModerator - Main entry point
+A Discord bot that uses LLM to moderate conversations
+"""
+import asyncio
+import logging
+import signal
+import sys
+from src.bot import DiscordLLModerator
+from src.config import load_config
+from src.utils.logging import setup_logging
+
+async def main():
+    """Main entry point for the DiscordLLModerator bot"""
+    # Load configuration first
+    try:
+        config = load_config("config/config.yaml")
+    except Exception as e:
+        print(f"Error loading configuration: {e}")
+        return
+    
+    # Set up logging based on config
+    setup_logging(config.log_level)
+    logger = logging.getLogger(__name__)
+    
+    # Configuration is already loaded
+    
+    # Create and run the bot
+    bot = DiscordLLModerator(config)
+    
+    # Set up graceful shutdown
+    loop = asyncio.get_event_loop()
+    
+    def signal_handler():
+        logger.info("Shutdown signal received")
+        asyncio.create_task(bot.shutdown())
+    
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, signal_handler)
+    
+    try:
+        logger.info("Starting DiscordLLModerator bot")
+        await bot.run()
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt received, shutting down")
+    except Exception as e:
+        logger.error(f"Error running bot: {e}", exc_info=True)
+    finally:
+        # Close any remaining resources
+        if hasattr(bot, 'cleanup'):
+            await bot.cleanup()
+        logger.info("Bot shutdown complete")
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Interrupted by user, shutting down...")
+    except Exception as e:
+        print(f"Error in main: {e}")
+        sys.exit(1)
+
+================
+File: README.md
+================
+# LLMod
+
+A Discord moderation bot powered by Large Language Models that helps maintain respectful conversations in your community.
+Developed with the help of Claude 3.5 Sonnet.
+
+## Overview
+
+LLMod monitors Discord channels for disrespectful content and helps maintain a positive community atmosphere. It uses Large Language Models to analyze messages and conversation patterns, providing intelligent moderation capabilities.
+
+## Work in Progress
+
+⚠️ Note: This project is under active development
+
+LLMod is currently in early development, and many improvements are needed:
+
+- The current moderation action is limited to posting warning messages to users who violate community standards
+
+- Future updates will include:
+  - Configurable moderation actions (message deletion, timeouts, bans, etc.)
+  - Better conversation tracking and context awareness
+  - User reputation system
+  - ...
+
+
+If you're interested in contributing to any of these features, please check the open issues or submit a pull request!
+## Features
+
+- **Smart Content Moderation**: Detects disrespectful messages using powerful LLMs
+- **Conversation Context Analysis**: Analyzes conversation patterns to detect problematic behaviors
+- **Multi-Provider Support**: Works with various LLM providers including OpenAI, Anthropic, Mistral, Groq, and more
+- **Self-hosted**: Run it on your own hardware for full control over your data
+- **Customizable**: Configure moderation policies and LLM settings to match your community needs
+
+## How It Works
+
+LLMod monitors messages in Discord channels and analyzes them using LLMs to determine if they contain disrespectful content. When problematic content is detected, the bot issues a warning to the user and can log the incident to a moderation channel.
+
+The bot also analyzes conversation patterns over time to detect issues that might not be obvious from single messages, such as subtle forms of harassment or coordinated disrespectful behavior.
+
+## Setup
+
+### Prerequisites
+
+- Python 3.12 or higher
+- Poetry (for dependency management)
+- Docker (optional, for containerized deployment)
+- A Discord bot token
+- API key(s) for your preferred LLM provider(s)
+
+### Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/llmod.git
+cd llmod
+```
+
+2. Install dependencies with Poetry:
+```bash
+# Install Poetry if you don't have it
+# curl -sSL https://install.python-poetry.org | python3 -
+
+# Install dependencies
+poetry install --no-root
+```
+
+3. Copy the example configuration file:
+```bash
+cp config/config-example.yaml config/config.yaml
+```
+
+4. Edit `config/config.yaml` with your Discord bot token and LLM provider API keys.
+
+### Configuration
+
+The `config.yaml` file contains all the settings for the bot. Key configurations include:
+
+```yaml
+# Discord settings
+bot_token: YOUR_DISCORD_BOT_TOKEN
+status_message: "Monitoring messages for moderation"
+
+# Moderation settings
+max_messages: 25
+log_level: INFO
+
+# Moderation channel for logging (optional)
+moderation_channel_id: YOUR_CHANNEL_ID
+
+# LLM providers configuration
+providers:
+  openai:
+    base_url: https://api.openai.com/v1
+    api_key: YOUR_OPENAI_API_KEY
+  anthropic:
+    base_url: https://api.anthropic.com/v1
+    api_key: YOUR_ANTHROPIC_API_KEY
+
+# Default model to use (format: provider/model_name)
+model: openai/gpt-4o
+```
+
+### Running the Bot
+
+#### With Poetry
+
+```bash
+poetry run python main.py
+```
+
+#### Using Docker
+
+You can also run LLMod in a Docker container:
+
+1. Build the Docker image:
+```bash
+docker build -t llmod .
+```
+
+2. Run the container:
+```bash
+docker run -v $(pwd)/config:/app/config -v $(pwd)/logs:/app/logs llmod
+```
+
+This mounts your local config directory and logs directory to the container, ensuring your configuration is used and logs are persisted.
+
+## Commands
+
+LLMod supports the following Discord slash commands:
+
+- `/ping` - Check if the bot is online
+- `/info` - Get information about the bot's configuration
+- `/providers` - List available LLM providers
+
+## Advanced Configuration
+
+### Conversation Analysis
+
+Configure how the bot analyzes conversations:
+
+```yaml
+# Number of messages to track for context
+max_messages: 25
+
+# Maximum age of messages to keep (in minutes)
+conversation_max_age: 60
+
+# Interval between conversation analyses (in seconds)
+conversation_interval: 300
+```
+
+### Moderation Channel
+
+Set up a dedicated channel where moderation actions are logged:
+
+```yaml
+moderation_channel_id: YOUR_CHANNEL_ID
+```
+
+### Custom System Prompt
+
+Customize the moderation criteria by modifying the system prompt:
+
+```yaml
+system_prompt: >
+  You are a Discord moderation assistant. Your task is to determine if messages contain
+  disrespectful content that should be moderated.
+```
+
+## Supported LLM Providers
+
+- OpenAI (gpt-4, gpt-3.5-turbo, etc.)
+- Anthropic (claude-3-opus, claude-3-sonnet, etc.)
+- Mistral AI
+- Groq
+- OpenRouter
+- Local models via Ollama, LM Studio, or vLLM
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+
+
+================================================================
+End of Codebase
+================================================================
