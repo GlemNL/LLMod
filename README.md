@@ -1,6 +1,7 @@
 # LLMod
 
 A Discord moderation bot powered by Large Language Models that helps maintain respectful conversations in your community.
+Developed with the help of Calude 3.5 Sonnet.
 
 ## Overview
 
