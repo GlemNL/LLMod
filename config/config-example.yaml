@@ -1,0 +1,47 @@
+# Discord settings
+bot_token: YOUR_DISCORD_BOT_TOKEN
+status_message: "Monitoring messages for moderation"
+
+# Moderation settings
+max_messages: 25
+log_level: INFO
+
+# Moderation channel for logging (optional)
+moderation_channel_id: 
+
+# LLM providers configuration
+providers:
+  openai:
+    base_url: https://api.openai.com/v1
+    api_key: YOUR_OPENAI_API_KEY
+  anthropic:
+    base_url: https://api.anthropic.com/v1
+    api_key: YOUR_ANTHROPIC_API_KEY
+  mistral:
+    base_url: https://api.mistral.ai/v1
+    api_key: YOUR_MISTRAL_API_KEY
+  groq:
+    base_url: https://api.groq.com/openai/v1
+    api_key: YOUR_GROQ_API_KEY
+  openrouter:
+    base_url: https://openrouter.ai/api/v1
+    api_key: YOUR_OPENROUTER_API_KEY
+  ollama:
+    base_url: http://localhost:11434/v1
+  lmstudio:
+    base_url: http://localhost:1234/v1
+  vllm:
+    base_url: http://localhost:8000/v1
+
+# Default model to use (format: provider/model_name)
+model: openai/gpt-4o
+
+# Additional API parameters for LLM requests
+extra_api_parameters:
+  max_tokens: 1024
+  temperature: 0.0
+
+# System prompt for moderation
+system_prompt: >
+  You are a Discord moderation assistant. Your task is to determine if messages contain
+  disrespectful content that should be moderated.
