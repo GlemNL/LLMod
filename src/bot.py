@@ -5,10 +5,9 @@ Enhanced main bot class for DiscordLLModerator with conversation context analysi
 import asyncio
 import logging
 import time
-import traceback
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
-from discord import Client, Intents
+from discord import Intents
 from src.discord.client import setup_discord_client
 from src.discord.events import register_events
 from src.discord.responses import ResponseTemplates

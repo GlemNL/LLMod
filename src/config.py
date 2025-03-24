@@ -3,11 +3,9 @@ Enhanced configuration loading and management for DiscordLLModerator with conver
 """
 
 import logging
-import os
 from typing import Any, Dict, Optional
 
 import yaml
-from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 

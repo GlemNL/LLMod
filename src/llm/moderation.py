@@ -5,8 +5,6 @@ Enhanced moderation service that uses LLM to detect disrespectful messages with 
 import asyncio
 import json
 import logging
-import re
-from typing import Any, Dict, List, Optional, Tuple
 
 from src.llm.prompts import CONVERSATION_MODERATION_PROMPT, MODERATION_PROMPT
 
