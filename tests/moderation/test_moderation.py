@@ -1,14 +1,9 @@
 import pytest
 import pytest_asyncio
 import asyncio
-import json
 import polars as pl
 import pandas as pd
-import numpy as np
-from pathlib import Path
-import aiohttp
-import re
-from typing import Dict, List, Tuple, Any, Optional
+
 
 # Import from existing codebase
 from src.config import Config
@@ -16,8 +11,9 @@ from src.llm.client import LLMClient
 from src.llm.moderation import extract_json_from_llm_response
 from src.llm.prompts import MODERATION_PROMPT
 
-TEST_MODEL = "gemma3:4b"
-BATCH_SIZE = 5
+TEST_MODEL = "hf.co/hungng/Llama-3.2-uncensored-erotica"
+TEST_DS_SIZE = 100
+BATCH_SIZE = 7
 # export OLLAMA_NUM_PARALLEL=5
 
 class TestConfig(Config):
@@ -68,7 +64,7 @@ class TestModerationWithOllama:
             df = pl.DataFrame(sample_data)
         
         # Select a subset for testing (adjust size as needed)
-        return df.sample(n=200, seed=42, with_replacement=True)
+        return df.sample(n=TEST_DS_SIZE, seed=42, with_replacement=True, shuffle=True)
 
     @pytest.mark.asyncio
     async def test_harassment_detection(self, llm_client, moderation_dataset):
@@ -96,7 +92,7 @@ class TestModerationWithOllama:
                 
                 return {
                     "id": row["id"],
-                    "text": message[:100] + "..." if len(message) > 100 else message,  # Truncate for readability
+                    "text": message[:500] + "..." if len(message) > 500 else message,  # Truncate for readability
                     "ground_truth_flagged": ground_truth_flagged,
                     "harassment_score": harassment_score,
                     "predicted_flagged": predicted_flagged,
@@ -107,7 +103,7 @@ class TestModerationWithOllama:
                 print(f"Error processing message {row['id']}: {e}")
                 return {
                     "id": row["id"],
-                    "text": message[:100] + "..." if len(message) > 100 else message,
+                    "text": message[:500] + "..." if len(message) > 500 else message,
                     "ground_truth_flagged": ground_truth_flagged,
                     "harassment_score": harassment_score,
                     "predicted_flagged": None,
@@ -218,7 +214,7 @@ class TestModerationWithOllama:
             
             return {
                 "id": row["id"],
-                "text": message[:100] + "..." if len(message) > 100 else message,
+                "text": message[:500] + "..." if len(message) > 500 else message,
                 "ground_truth_flagged": ground_truth_flagged,
                 "harassment_score": harassment_score,
                 "predicted_flagged": predicted_flagged,
@@ -228,7 +224,7 @@ class TestModerationWithOllama:
         except asyncio.TimeoutError:
             return {
                 "id": row["id"],
-                "text": message[:100] + "..." if len(message) > 100 else message,
+                "text": message[:500] + "..." if len(message) > 500 else message,
                 "ground_truth_flagged": ground_truth_flagged,
                 "harassment_score": harassment_score,
                 "predicted_flagged": None,
@@ -239,7 +235,7 @@ class TestModerationWithOllama:
             print(f"Error processing message {row['id']}: {e}")
             return {
                 "id": row["id"],
-                "text": message[:100] + "..." if len(message) > 100 else message,
+                "text": message[:500] + "..." if len(message) > 500 else message,
                 "ground_truth_flagged": ground_truth_flagged,
                 "harassment_score": harassment_score,
                 "predicted_flagged": None,

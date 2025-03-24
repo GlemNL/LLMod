@@ -34,8 +34,8 @@ logs/
 # Database
 *.db
 *.sqlite3
-**/data/
 **/notebooks
+*.csv
 
 # IDE specific files
 .idea/
@@ -46,3 +46,6 @@ logs/
 # OS specific files
 .DS_Store
 Thumbs.db
+
+# Images
+*.png
